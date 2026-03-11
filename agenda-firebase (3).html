@@ -1,0 +1,954 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>Agenda Estratégica CSC</title>
+<link href="https://fonts.googleapis.com/css2?family=Sora:wght@400;600;700;800&display=swap" rel="stylesheet"/>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.production.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.23.2/babel.min.js"></script>
+<!-- Firebase -->
+<script type="module" id="firebase-init">
+  import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js";
+  import { getFirestore, collection, doc, onSnapshot, setDoc, deleteDoc, getDocs } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js";
+
+  const firebaseConfig = {
+    apiKey: "AIzaSyAcSapL9kW3wqmUlvjUtMNDT5DK_0yNwf8",
+    authDomain: "csc-agenda-estrategica.firebaseapp.com",
+    projectId: "csc-agenda-estrategica",
+    storageBucket: "csc-agenda-estrategica.firebasestorage.app",
+    messagingSenderId: "550972493263",
+    appId: "1:550972493263:web:e85608afa6b8ec4391d6ba"
+  };
+
+  const app = initializeApp(firebaseConfig);
+  const db = getFirestore(app);
+
+  // Expose Firebase helpers globally for React app
+  window.__fb = {
+    db,
+    collection, doc, onSnapshot, setDoc, deleteDoc, getDocs,
+    tasksCol: () => collection(db, "tasks"),
+    configDoc: (id) => doc(db, "config", id),
+    taskDoc: (id) => doc(db, "tasks", String(id)),
+  };
+  window.__fbReady = true;
+  window.dispatchEvent(new Event("fbReady"));
+</script>
+<script>
+  const _warn = console.warn.bind(console);
+  console.warn = (...args) => { if (args[0] && String(args[0]).includes('Babel')) return; _warn(...args); };
+</script>
+<style>
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{font-family:'Sora',sans-serif;background:#f1f5f9;min-height:100vh}
+  input,select,button{font-family:'Sora',sans-serif}
+  ::-webkit-scrollbar{width:6px;height:6px}
+  ::-webkit-scrollbar-track{background:#f1f5f9}
+  ::-webkit-scrollbar-thumb{background:#cbd5e1;border-radius:99px}
+</style>
+</head>
+<body>
+<div id="root"></div>
+<script type="text/babel">
+const {useState,useMemo}=React;
+
+const INIT_TEAM=["Yo (Contador)","Cdra. Silvia Albornoz","Cdra. Noelia Petrelli","Adm. Gerardo Manes","Lic. Nicolas Vega","Adm. Shamira Salas"];
+const INIT_CATS=["Contabilidad","Auditoría","Proveedores","Reportes","Personal","Informes Disponible"];
+const PRIORITIES=["Alta","Media","Baja"];
+const STATUSES=["Pendiente","En Progreso","Completado","Bloqueado"];
+const TODAY=new Date().toISOString().split("T")[0];
+
+function daysBetween(a,b){return Math.floor((new Date(b)-new Date(a))/86400000);}
+
+function calcStall(task){
+  const h=task.progressHistory||[];
+  const totalDays=daysBetween(task.created,TODAY);
+  if(!h.length) return{stallDays:totalDays,totalDays,currentPct:task.progress};
+  const last=h[h.length-1];
+  return{stallDays:daysBetween(last.date,TODAY),totalDays,currentPct:last.pct};
+}
+
+function makeHistory(created,progress){
+  if(progress===0) return[{date:created,pct:0}];
+  if(progress===100){
+    const mid=new Date(new Date(created).getTime()+3*86400000).toISOString().split("T")[0];
+    return[{date:created,pct:0},{date:mid,pct:60},{date:mid,pct:100}];
+  }
+  const d1=new Date(new Date(created).getTime()+2*86400000).toISOString().split("T")[0];
+  return[{date:created,pct:0},{date:d1,pct:progress}];
+}
+
+const INIT_TASKS=[
+  {id:1773072191811,title:"Balance 2025",desc:"Registracion Ajustes Auditoria",assignee:"Cdra. Silvia Albornoz",category:"Contabilidad",priority:"Alta",status:"Pendiente",progress:0,due:"2026-03-13",created:"2026-03-09",progressHistory:[{date:"2026-03-09",pct:0}],subtasks:[]},
+  {id:1773072261156,title:"Balance 2025",desc:"Registracion Ajustes Auditoria",assignee:"Cdra. Noelia Petrelli",category:"Contabilidad",priority:"Alta",status:"Pendiente",progress:0,due:"2026-03-13",created:"2026-03-09",progressHistory:[{date:"2026-03-09",pct:0}],subtasks:[]},
+  {id:1773072358430,title:"Balance 2025",desc:"Registracion Ajustes Auditoria",assignee:"Yo (Contador)",category:"Contabilidad",priority:"Alta",status:"Pendiente",progress:0,due:"2026-03-13",created:"2026-03-09",progressHistory:[{date:"2026-03-09",pct:0}],subtasks:[]},
+  {id:1773072458106,title:"Balance 2025",desc:"Creacion de Ctas. Contables - Auditoria",assignee:"Yo (Contador)",category:"Contabilidad",priority:"Alta",status:"Pendiente",progress:0,due:"2026-03-09",created:"2026-03-09",progressHistory:[{date:"2026-03-09",pct:0}],subtasks:[]},
+];
+
+const PC={Alta:{color:"#ef4444",bg:"#fef2f2",border:"#fecaca",dot:"🔴"},Media:{color:"#f59e0b",bg:"#fffbeb",border:"#fde68a",dot:"🟡"},Baja:{color:"#22c55e",bg:"#f0fdf4",border:"#bbf7d0",dot:"🟢"}};
+const SC={Pendiente:{color:"#6b7280",bg:"#f9fafb",icon:"⏳"},"En Progreso":{color:"#3b82f6",bg:"#eff6ff",icon:"🔄"},Completado:{color:"#22c55e",bg:"#f0fdf4",icon:"✅"},Bloqueado:{color:"#ef4444",bg:"#fef2f2",icon:"🚫"}};
+
+function PBar({value,color="#3b82f6"}){
+  return <div style={{background:"#e5e7eb",borderRadius:99,height:6,overflow:"hidden"}}>
+    <div style={{width:`${value}%`,background:color,height:"100%",borderRadius:99,transition:"width .4s"}}/>
+  </div>;
+}
+
+function Badge({text,cfg}){
+  return <span style={{display:"inline-flex",alignItems:"center",gap:4,padding:"2px 10px",borderRadius:99,fontSize:11,fontWeight:600,background:cfg.bg,color:cfg.color,border:`1px solid ${cfg.border||cfg.bg}`,whiteSpace:"nowrap"}}>{cfg.dot||cfg.icon} {text}</span>;
+}
+
+function StatCard({title,value,sub,color,icon}){
+  return <div style={{background:"#fff",borderRadius:12,padding:"12px 16px",boxShadow:"0 1px 3px rgba(0,0,0,.08)",borderLeft:`3px solid ${color}`,flex:1,minWidth:110,display:"flex",alignItems:"center",gap:10}}>
+    <div style={{fontSize:20,lineHeight:1}}>{icon}</div>
+    <div>
+      <div style={{fontSize:20,fontWeight:800,color,lineHeight:1}}>{value}</div>
+      <div style={{fontSize:11,fontWeight:600,color:"#374151",marginTop:2}}>{title}</div>
+      {sub&&<div style={{fontSize:10,color:"#9ca3af",marginTop:1}}>{sub}</div>}
+    </div>
+  </div>;
+}
+
+function StallBadge({task}){
+  const{stallDays,totalDays,currentPct}=calcStall(task);
+  if(task.status==="Completado") return <span style={{fontSize:10,color:"#22c55e",fontWeight:700}}>✅ Completado</span>;
+  const c=stallDays>=7?"#ef4444":stallDays>=3?"#f59e0b":"#6b7280";
+  const ic=stallDays>=7?"🔴":stallDays>=3?"🟡":"🟢";
+  return <div style={{display:"flex",flexDirection:"column",gap:2}}>
+    <span style={{fontSize:10,fontWeight:700,color:c,whiteSpace:"nowrap"}}>{ic} {stallDays}d en {currentPct}%</span>
+    <span style={{fontSize:10,color:"#9ca3af",whiteSpace:"nowrap"}}>📅 {totalDays}d total</span>
+  </div>;
+}
+
+function ProgressHistory({task}){
+  const h=task.progressHistory||[];
+  if(!h.length) return null;
+  return <div style={{marginTop:16,padding:"14px 16px",background:"#f8fafc",borderRadius:12,border:"1px solid #e5e7eb"}}>
+    <div style={{fontSize:12,fontWeight:700,color:"#374151",marginBottom:10}}>📊 Historial de avance</div>
+    {h.map((entry,i)=>{
+      const nextDate=i<h.length-1?h[i+1].date:TODAY;
+      const days=daysBetween(entry.date,nextDate);
+      const isLast=i===h.length-1;
+      return <div key={i} style={{display:"flex",gap:12,alignItems:"flex-start"}}>
+        <div style={{display:"flex",flexDirection:"column",alignItems:"center",width:20,flexShrink:0}}>
+          <div style={{width:10,height:10,borderRadius:"50%",background:isLast?"#3b82f6":"#d1d5db",marginTop:3,border:isLast?"2px solid #1d4ed8":"none"}}/>
+          {i<h.length-1&&<div style={{width:2,flex:1,background:"#e5e7eb",minHeight:20}}/>}
+        </div>
+        <div style={{paddingBottom:12,flex:1}}>
+          <div style={{display:"flex",alignItems:"center",gap:8,flexWrap:"wrap"}}>
+            <span style={{fontSize:12,fontWeight:800,color:"#111827"}}>{entry.pct}%</span>
+            <span style={{fontSize:11,color:"#9ca3af"}}>{entry.date}</span>
+            {days>0&&<span style={{fontSize:10,fontWeight:700,padding:"1px 7px",borderRadius:99,background:days>=7?"#fef2f2":days>=3?"#fffbeb":"#f0fdf4",color:days>=7?"#ef4444":days>=3?"#f59e0b":"#22c55e",border:`1px solid ${days>=7?"#fecaca":days>=3?"#fde68a":"#bbf7d0"}`}}>{isLast?`⏱ ${days}d aquí (actual)`:`${days}d`}</span>}
+          </div>
+          {i>0&&<div style={{fontSize:10,color:"#9ca3af"}}>+{entry.pct-h[i-1].pct}% desde actualización anterior</div>}
+        </div>
+      </div>;
+    })}
+    <div style={{marginTop:4,paddingTop:8,borderTop:"1px dashed #e5e7eb",fontSize:11,color:"#6b7280"}}>🗓 {daysBetween(task.created,TODAY)} días desde que se cargó ({task.created})</div>
+  </div>;
+}
+
+function TaskModal({task,team,cats,onClose,onSave}){
+  const[form,setForm]=useState({...task,subtasks:(task.subtasks||[])});
+  const set=(k,v)=>setForm(f=>({...f,[k]:v}));
+
+  // ── Subtasks helpers ──
+  const MAX_SUBTASKS=10;
+  const subtasks=form.subtasks||[];
+  const definedSubs=subtasks.filter(s=>s.text.trim()!=="");
+  const checkedCount=definedSubs.filter(s=>s.done).length;
+  const totalDefined=definedSubs.length;
+
+  // Recalcula % desde subtareas si hay alguna definida
+  const pctFromSubs=totalDefined>0?Math.round((checkedCount/totalDefined)*100):null;
+
+  const handlePct=(n)=>{
+    const h=form.progressHistory||[];
+    const todayEntry={date:TODAY,pct:n};
+    const withoutToday=h.filter(x=>x.date!==TODAY);
+    setForm(f=>({...f,progress:n,progressHistory:[...withoutToday,todayEntry]}));
+  };
+
+  const setSubtaskText=(i,text)=>{
+    const next=[...subtasks];
+    // extend array if needed
+    while(next.length<=i) next.push({text:"",done:false});
+    next[i]={...next[i],text};
+    setForm(f=>({...f,subtasks:next}));
+  };
+
+  const toggleSubtask=(i)=>{
+    const next=subtasks.map((s,idx)=>idx===i?{...s,done:!s.done}:s);
+    const def=next.filter(s=>s.text.trim()!=="");
+    const chk=def.filter(s=>s.done).length;
+    const newPct=def.length>0?Math.round((chk/def.length)*100):form.progress;
+    const h=form.progressHistory||[];
+    const todayEntry={date:TODAY,pct:newPct};
+    const withoutToday=h.filter(x=>x.date!==TODAY);
+    setForm(f=>({...f,subtasks:next,progress:newPct,progressHistory:[...withoutToday,todayEntry]}));
+  };
+
+  const addSubtaskSlot=()=>{
+    if(subtasks.length>=MAX_SUBTASKS) return;
+    setForm(f=>({...f,subtasks:[...f.subtasks,{text:"",done:false}]}));
+  };
+
+  const removeSubtask=(i)=>{
+    const next=subtasks.filter((_,idx)=>idx!==i);
+    setForm(f=>({...f,subtasks:next}));
+  };
+
+  const{stallDays,totalDays}=calcStall(form);
+  const inp={width:"100%",padding:"10px 14px",borderRadius:10,border:"1.5px solid #e5e7eb",fontSize:14,outline:"none"};
+
+  return <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,.45)",zIndex:1000,display:"flex",alignItems:"center",justifyContent:"center",padding:20}} onClick={onClose}>
+    <div style={{background:"#fff",borderRadius:20,padding:32,width:"100%",maxWidth:600,boxShadow:"0 20px 60px rgba(0,0,0,.2)",maxHeight:"92vh",overflowY:"auto"}} onClick={e=>e.stopPropagation()}>
+      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:24}}>
+        <h2 style={{margin:0,fontSize:18,fontWeight:800,color:"#111827"}}>{task.id?"✏️ Editar Tarea":"➕ Nueva Tarea"}</h2>
+        <button onClick={onClose} style={{background:"none",border:"none",fontSize:22,cursor:"pointer",color:"#6b7280"}}>✕</button>
+      </div>
+      <div style={{display:"flex",flexDirection:"column",gap:14}}>
+        {/* Título y Descripción */}
+        {[["Título","title","text"],["Descripción","desc","text"],["Fecha límite","due","date"]].map(([label,key,type])=>(
+          <div key={key}>
+            <label style={{fontSize:12,fontWeight:600,color:"#6b7280",display:"block",marginBottom:4}}>{label}</label>
+            <input type={type} value={form[key]} onChange={e=>set(key,e.target.value)} style={inp}/>
+          </div>
+        ))}
+        <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12}}>
+          {[["Responsable","assignee",team],["Categoría","category",cats],["Prioridad","priority",PRIORITIES],["Estado","status",STATUSES]].map(([label,key,opts])=>(
+            <div key={key}>
+              <label style={{fontSize:12,fontWeight:600,color:"#6b7280",display:"block",marginBottom:4}}>{label}</label>
+              <select value={form[key]} onChange={e=>set(key,e.target.value)} style={{...inp,fontSize:13,background:"#fff",cursor:"pointer"}}>
+                {opts.map(o=><option key={o}>{o}</option>)}
+              </select>
+            </div>
+          ))}
+        </div>
+
+        {/* ── SUBTAREAS ── */}
+        <div style={{background:"#f8fafc",borderRadius:14,padding:"16px 18px",border:"1.5px solid #e5e7eb"}}>
+          <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:12}}>
+            <div style={{display:"flex",alignItems:"center",gap:8}}>
+              <span style={{fontSize:14,fontWeight:700,color:"#374151"}}>✅ Subtareas</span>
+              {totalDefined>0&&<span style={{fontSize:12,fontWeight:700,padding:"2px 10px",borderRadius:99,background:checkedCount===totalDefined?"#dcfce7":checkedCount>0?"#fef3c7":"#f1f5f9",color:checkedCount===totalDefined?"#16a34a":checkedCount>0?"#d97706":"#6b7280"}}>
+                {checkedCount}/{totalDefined} hechas
+              </span>}
+            </div>
+            {subtasks.length<MAX_SUBTASKS&&<button onClick={addSubtaskSlot} style={{padding:"5px 12px",borderRadius:8,border:"1.5px dashed #3b82f6",background:"transparent",color:"#3b82f6",fontWeight:700,fontSize:12,cursor:"pointer"}}>+ Agregar</button>}
+          </div>
+
+          {subtasks.length===0&&(
+            <div style={{textAlign:"center",padding:"14px 0",color:"#9ca3af",fontSize:13}}>
+              Presioná <strong>+ Agregar</strong> para crear subtareas.<br/>
+              <span style={{fontSize:11}}>Al tildarlas el avance se actualiza automáticamente.</span>
+            </div>
+          )}
+
+          {subtasks.map((sub,i)=>(
+            <div key={i} style={{display:"flex",alignItems:"center",gap:10,marginBottom:8}}>
+              {/* checkbox — solo activo si tiene texto */}
+              <div
+                onClick={()=>sub.text.trim()&&toggleSubtask(i)}
+                style={{width:22,height:22,borderRadius:6,border:`2px solid ${sub.done?"#22c55e":sub.text.trim()?"#3b82f6":"#d1d5db"}`,background:sub.done?"#22c55e":"#fff",display:"flex",alignItems:"center",justifyContent:"center",cursor:sub.text.trim()?"pointer":"default",flexShrink:0,transition:"all .15s"}}
+              >
+                {sub.done&&<span style={{color:"#fff",fontSize:13,fontWeight:900,lineHeight:1}}>✓</span>}
+              </div>
+              {/* texto */}
+              <input
+                value={sub.text}
+                onChange={e=>setSubtaskText(i,e.target.value)}
+                placeholder={`Subtarea ${i+1}...`}
+                style={{flex:1,padding:"8px 12px",borderRadius:8,border:"1.5px solid #e5e7eb",fontSize:13,outline:"none",background:sub.done?"#f0fdf4":"#fff",color:sub.done?"#6b7280":"#111827",textDecoration:sub.done?"line-through":"none",transition:"all .2s"}}
+              />
+              {/* quitar */}
+              <button onClick={()=>removeSubtask(i)} style={{background:"none",border:"none",cursor:"pointer",color:"#d1d5db",fontSize:18,padding:"0 2px",lineHeight:1}} title="Quitar subtarea">×</button>
+            </div>
+          ))}
+
+          {/* mini barra de subtareas */}
+          {totalDefined>0&&<div style={{marginTop:10}}>
+            <div style={{background:"#e5e7eb",borderRadius:99,height:6,overflow:"hidden"}}>
+              <div style={{width:`${pctFromSubs}%`,background:checkedCount===totalDefined?"#22c55e":"#3b82f6",height:"100%",borderRadius:99,transition:"width .4s"}}/>
+            </div>
+            <div style={{fontSize:11,color:"#9ca3af",marginTop:4,textAlign:"right"}}>{pctFromSubs}% completado por subtareas</div>
+          </div>}
+        </div>
+
+        {/* ── AVANCE MANUAL (slider) ── */}
+        <div>
+          <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:4}}>
+            <label style={{fontSize:12,fontWeight:600,color:"#6b7280"}}>
+              Avance: {form.progress}%
+              {totalDefined>0&&<span style={{fontWeight:400,color:"#9ca3af",marginLeft:6}}>(calculado por subtareas)</span>}
+            </label>
+            {form.id&&form.status!=="Completado"&&<span style={{fontSize:11,fontWeight:700,padding:"2px 9px",borderRadius:99,background:stallDays>=7?"#fef2f2":stallDays>=3?"#fffbeb":"#f0fdf4",color:stallDays>=7?"#ef4444":stallDays>=3?"#f59e0b":"#22c55e"}}>
+              {stallDays>=7?"🔴":stallDays>=3?"🟡":"🟢"} {stallDays}d en {form.progress}% · {totalDays}d total
+            </span>}
+          </div>
+          <input
+            type="range" min={0} max={100} value={form.progress}
+            onChange={e=>handlePct(Number(e.target.value))}
+            disabled={totalDefined>0}
+            style={{width:"100%",accentColor:"#3b82f6",opacity:totalDefined>0?0.4:1,cursor:totalDefined>0?"not-allowed":"pointer"}}
+          />
+          {totalDefined>0&&<div style={{fontSize:11,color:"#9ca3af",marginTop:2}}>El slider se controla automáticamente con las subtareas.</div>}
+        </div>
+
+        {form.id&&<ProgressHistory task={form}/>}
+      </div>
+      <div style={{display:"flex",gap:10,marginTop:24,justifyContent:"flex-end"}}>
+        <button onClick={onClose} style={{padding:"10px 20px",borderRadius:10,border:"1.5px solid #e5e7eb",background:"#fff",cursor:"pointer",fontWeight:600,fontSize:14}}>Cancelar</button>
+        <button onClick={()=>{onSave(form);onClose();}} style={{padding:"10px 24px",borderRadius:10,border:"none",background:"linear-gradient(135deg,#1d4ed8,#3b82f6)",color:"#fff",cursor:"pointer",fontWeight:700,fontSize:14}}>Guardar</button>
+      </div>
+    </div>
+  </div>;
+}
+
+function SettingsModal({team,cats,onClose,onSaveConfig}){
+  const[tl,setTl]=useState([...team]);
+  const[cl,setCl]=useState([...cats]);
+  const[nm,setNm]=useState("");
+  const[nc,setNc]=useState("");
+  const[tab,setTab]=useState("equipo");
+  const addM=()=>{const v=nm.trim();if(v&&!tl.includes(v)){setTl([...tl,v]);setNm("");return[...tl,v];}return tl;};
+  const remM=(n)=>{if(n!=="Yo (Contador)")setTl(tl.filter(m=>m!==n));};
+  const addC=()=>{const v=nc.trim();if(v&&!cl.includes(v)){setCl([...cl,v]);setNc("");return[...cl,v];}return cl;};
+  const remC=(c)=>setCl(cl.filter(x=>x!==c));
+  const save=()=>{
+    // Si hay texto pendiente en el input, agregarlo antes de guardar
+    const finalTeam=nm.trim()&&!tl.includes(nm.trim())?[...tl,nm.trim()]:tl;
+    const finalCats=nc.trim()&&!cl.includes(nc.trim())?[...cl,nc.trim()]:cl;
+    onSaveConfig(finalTeam,finalCats);
+    onClose();
+  };
+  const ins={flex:1,padding:"9px 14px",borderRadius:10,border:"1.5px solid #e5e7eb",fontSize:13,outline:"none"};
+  const list=(arr,onRem,fixed)=>arr.map(item=>(
+    <div key={item} style={{display:"flex",alignItems:"center",justifyContent:"space-between",padding:"10px 14px",borderRadius:10,background:"#f8fafc",border:"1px solid #e5e7eb",marginBottom:7}}>
+      <span style={{fontSize:13,fontWeight:600,color:"#374151"}}>{item==="Yo (Contador)"?"⭐ ":""}{item}</span>
+      {item!==fixed&&<button onClick={()=>onRem(item)} style={{background:"none",border:"none",cursor:"pointer",color:"#ef4444",fontSize:18,padding:"0 4px"}}>×</button>}
+    </div>
+  ));
+  return <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,.5)",zIndex:1100,display:"flex",alignItems:"center",justifyContent:"center",padding:20}} onClick={onClose}>
+    <div style={{background:"#fff",borderRadius:20,padding:32,width:"100%",maxWidth:480,boxShadow:"0 20px 60px rgba(0,0,0,.25)",maxHeight:"85vh",display:"flex",flexDirection:"column"}} onClick={e=>e.stopPropagation()}>
+      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:20}}>
+        <h2 style={{margin:0,fontSize:18,fontWeight:800,color:"#111827"}}>⚙️ Configuración</h2>
+        <button onClick={onClose} style={{background:"none",border:"none",fontSize:22,cursor:"pointer",color:"#6b7280"}}>✕</button>
+      </div>
+      <div style={{display:"flex",gap:8,marginBottom:20}}>
+        {["equipo","categorias"].map(t=>(
+          <button key={t} onClick={()=>setTab(t)} style={{padding:"9px 20px",borderRadius:9,border:"none",cursor:"pointer",fontWeight:700,fontSize:13,background:tab===t?"#1d4ed8":"#f1f5f9",color:tab===t?"#fff":"#374151"}}>
+            {t==="equipo"?"👥 Equipo":"🏷️ Categorías"}
+          </button>
+        ))}
+      </div>
+      <div style={{flex:1,overflowY:"auto"}}>
+        {tab==="equipo"&&<>
+          <p style={{margin:"0 0 12px",fontSize:12,color:"#9ca3af"}}>Agregá o eliminá integrantes del equipo.</p>
+          <div style={{display:"flex",gap:8,marginBottom:12}}>
+            <input value={nm} onChange={e=>setNm(e.target.value)} onKeyDown={e=>e.key==="Enter"&&addM()} placeholder="Nombre del integrante..." style={ins}/>
+            <button onClick={addM} style={{padding:"9px 16px",borderRadius:10,border:"none",background:"#1d4ed8",color:"#fff",fontWeight:700,fontSize:13,cursor:"pointer",whiteSpace:"nowrap"}}>+ Agregar</button>
+          </div>
+          {list(tl,remM,"Yo (Contador)")}
+        </>}
+        {tab==="categorias"&&<>
+          <p style={{margin:"0 0 12px",fontSize:12,color:"#9ca3af"}}>Agregá o eliminá categorías de tareas.</p>
+          <div style={{display:"flex",gap:8,marginBottom:12}}>
+            <input value={nc} onChange={e=>setNc(e.target.value)} onKeyDown={e=>e.key==="Enter"&&addC()} placeholder="Nueva categoría..." style={ins}/>
+            <button onClick={addC} style={{padding:"9px 16px",borderRadius:10,border:"none",background:"#1d4ed8",color:"#fff",fontWeight:700,fontSize:13,cursor:"pointer",whiteSpace:"nowrap"}}>+ Agregar</button>
+          </div>
+          {list(cl,remC,null)}
+        </>}
+      </div>
+      <div style={{display:"flex",gap:10,marginTop:24,justifyContent:"flex-end"}}>
+        <button onClick={onClose} style={{padding:"10px 20px",borderRadius:10,border:"1.5px solid #e5e7eb",background:"#fff",cursor:"pointer",fontWeight:600,fontSize:14}}>Cancelar</button>
+        <button onClick={save} style={{padding:"10px 24px",borderRadius:10,border:"none",background:"linear-gradient(135deg,#1d4ed8,#3b82f6)",color:"#fff",cursor:"pointer",fontWeight:700,fontSize:14}}>Guardar cambios</button>
+      </div>
+    </div>
+  </div>;
+}
+
+/* ── Popover de subtareas al hacer hover en la barra de avance ── */
+function SubtaskPopover({task,color}){
+  const[show,setShow]=useState(false);
+  const subs=(task.subtasks||[]).filter(s=>s.text.trim());
+  const hasSubs=subs.length>0;
+  const chk=subs.filter(s=>s.done).length;
+
+  return <div
+    style={{position:"relative"}}
+    onMouseEnter={()=>hasSubs&&setShow(true)}
+    onMouseLeave={()=>setShow(false)}
+  >
+    <div style={{fontSize:11,fontWeight:700,color:"#6b7280",marginBottom:3}}>{task.progress}%</div>
+    <div style={{cursor:hasSubs?"pointer":"default"}}>
+      <PBar value={task.progress} color={task.status==="Completado"?"#22c55e":color}/>
+      {hasSubs&&<div style={{fontSize:9,color:"#9ca3af",marginTop:2,textAlign:"right"}}>
+        ✅ {chk}/{subs.length}
+      </div>}
+    </div>
+
+    {show&&hasSubs&&<div
+      onClick={e=>e.stopPropagation()}
+      style={{
+        position:"absolute",top:"calc(100% + 10px)",left:"50%",transform:"translateX(-50%)",
+        background:"#1e293b",borderRadius:14,padding:"14px 16px",
+        boxShadow:"0 12px 40px rgba(0,0,0,.35)",zIndex:500,
+        minWidth:220,maxWidth:300,pointerEvents:"none",
+      }}
+    >
+      {/* flecha */}
+      <div style={{position:"absolute",top:-7,left:"50%",transform:"translateX(-50%)",
+        width:14,height:14,background:"#1e293b",borderRadius:2,rotate:"45deg"}}/>
+
+      <div style={{fontSize:11,fontWeight:700,color:"#93c5fd",marginBottom:10,letterSpacing:0.5,textTransform:"uppercase"}}>
+        Subtareas · {chk}/{subs.length} completadas
+      </div>
+
+      {/* mini barra */}
+      <div style={{background:"rgba(255,255,255,.15)",borderRadius:99,height:5,marginBottom:12,overflow:"hidden"}}>
+        <div style={{width:`${Math.round((chk/subs.length)*100)}%`,background:chk===subs.length?"#4ade80":"#60a5fa",height:"100%",borderRadius:99,transition:"width .3s"}}/>
+      </div>
+
+      {subs.map((s,i)=>(
+        <div key={i} style={{display:"flex",alignItems:"flex-start",gap:8,marginBottom:7}}>
+          <div style={{
+            width:16,height:16,borderRadius:4,flexShrink:0,marginTop:1,
+            background:s.done?"#4ade80":"transparent",
+            border:`2px solid ${s.done?"#4ade80":"rgba(255,255,255,.3)"}`,
+            display:"flex",alignItems:"center",justifyContent:"center"
+          }}>
+            {s.done&&<span style={{color:"#1e293b",fontSize:10,fontWeight:900,lineHeight:1}}>✓</span>}
+          </div>
+          <span style={{
+            fontSize:12,color:s.done?"#86efac":"rgba(255,255,255,.75)",
+            textDecoration:s.done?"line-through":"none",lineHeight:1.4,flex:1
+          }}>{s.text}</span>
+        </div>
+      ))}
+    </div>}
+  </div>;
+}
+
+function App(){
+  const{useState:_us,useEffect:_ue,useRef:_ur}=React;
+
+  const[tasks,setTasks]=useState([]);
+  const[team,setTeam]=useState(INIT_TEAM);
+  const[cats,setCats]=useState(INIT_CATS);
+  const[view,setView]=useState("dashboard");
+  const[fAs,setFAs]=useState("Todos");
+  const[fSt,setFSt]=useState("Todos");
+  const[fPr,setFPr]=useState("Todos");
+  const[fCat,setFCat]=useState("Todos");
+  const[search,setSearch]=useState("");
+  const[modal,setModal]=useState(null);
+  const[showCfg,setShowCfg]=useState(false);
+  const[sortCol,setSortCol]=useState("priority");
+  const[sortDir,setSortDir]=useState("asc");
+  const[fbReady,setFbReady]=useState(!!window.__fbReady);
+  const[loading,setLoading]=useState(true);
+  const[syncMsg,setSyncMsg]=useState(null);
+  const[undoMsg,setUndoMsg]=useState(null);
+  const[history,setHistory]=useState([]);
+  const[future,setFuture]=useState([]);
+  const seeded=React.useRef(false);
+
+  const MAX_HISTORY=20;
+
+  const showToast=(msg,dur=2200)=>{
+    setUndoMsg(msg);
+    setTimeout(()=>setUndoMsg(null),dur);
+  };
+  const showSync=(msg)=>{
+    setSyncMsg(msg);
+    setTimeout(()=>setSyncMsg(null),2000);
+  };
+
+  // Wait for Firebase to be ready
+  React.useEffect(()=>{
+    if(window.__fbReady){setFbReady(true);return;}
+    const h=()=>setFbReady(true);
+    window.addEventListener("fbReady",h);
+    return()=>window.removeEventListener("fbReady",h);
+  },[]);
+
+  // Subscribe to Firestore tasks in real-time
+  React.useEffect(()=>{
+    if(!fbReady) return;
+    const fb=window.__fb;
+    // Subscribe tasks
+    const unsubTasks=fb.onSnapshot(fb.tasksCol(), snap=>{
+      const loaded=snap.docs.map(d=>d.data());
+      if(loaded.length===0&&!seeded.current){
+        seeded.current=true;
+        INIT_TASKS.forEach(t=>fb.setDoc(fb.taskDoc(t.id),t));
+      } else {
+        setTasks(loaded);
+      }
+      setLoading(false);
+    });
+    // Subscribe config (team + cats) — si no existe, lo crea con los valores iniciales
+    const unsubCfg=fb.onSnapshot(fb.configDoc("main"), snap=>{
+      if(snap.exists()){
+        const d=snap.data();
+        if(d.team&&Array.isArray(d.team)) setTeam(d.team);
+        if(d.cats&&Array.isArray(d.cats)) setCats(d.cats);
+      } else {
+        // Primera vez: guardar config inicial en Firebase
+        fb.setDoc(fb.configDoc("main"),{team:INIT_TEAM,cats:INIT_CATS});
+      }
+    });
+    return()=>{unsubTasks();unsubCfg();};
+  },[fbReady]);
+
+  const teamRef=React.useRef(team);
+  const catsRef=React.useRef(cats);
+  React.useEffect(()=>{teamRef.current=team;},[team]);
+  React.useEffect(()=>{catsRef.current=cats;},[cats]);
+
+  const saveConfig=(newTeam,newCats)=>{
+    if(!fbReady) return;
+    const t=Array.isArray(newTeam)?newTeam:teamRef.current;
+    const c=Array.isArray(newCats)?newCats:catsRef.current;
+    // Actualizar estado local inmediatamente (no esperar roundtrip Firebase)
+    setTeam(t);
+    setCats(c);
+    window.__fb.setDoc(window.__fb.configDoc("main"),{team:t,cats:c});
+    showSync("✅ Configuración guardada");
+  };
+
+  const snapshot=(label,currentTasks)=>{
+    setHistory(h=>[...h.slice(-(MAX_HISTORY-1)),{tasks:currentTasks,label}]);
+    setFuture([]);
+  };
+
+  const undo=()=>{
+    if(!history.length) return;
+    const prev=history[history.length-1];
+    setFuture(f=>[{tasks,label:prev.label},...f]);
+    // restore: delete all current tasks in FB and re-upload prev
+    const fb=window.__fb;
+    tasks.forEach(t=>fb.deleteDoc(fb.taskDoc(t.id)));
+    prev.tasks.forEach(t=>fb.setDoc(fb.taskDoc(t.id),t));
+    setHistory(h=>h.slice(0,-1));
+    showToast(`↩ Deshecho: ${prev.label}`);
+  };
+
+  const redo=()=>{
+    if(!future.length) return;
+    const next=future[0];
+    setHistory(h=>[...h,{tasks,label:next.label}]);
+    const fb=window.__fb;
+    tasks.forEach(t=>fb.deleteDoc(fb.taskDoc(t.id)));
+    next.tasks.forEach(t=>fb.setDoc(fb.taskDoc(t.id),t));
+    setFuture(f=>f.slice(1));
+    showToast(`↪ Rehecho: ${next.label}`);
+  };
+
+  const handleSort=(col)=>{if(sortCol===col)setSortDir(d=>d==="asc"?"desc":"asc");else{setSortCol(col);setSortDir("asc");}};
+
+  const filtered=useMemo(()=>tasks.filter(t=>{
+    if(activeMember&&t.assignee!==activeMember) return false;
+    if(view==="mias"&&t.assignee!=="Yo (Contador)") return false;
+    if(!activeMember&&view!=="mias"&&fAs!=="Todos"&&t.assignee!==fAs) return false;
+    if(fSt!=="Todos"&&t.status!==fSt) return false;
+    if(fPr!=="Todos"&&t.priority!==fPr) return false;
+    if(fCat!=="Todos"&&t.category!==fCat) return false;
+    if(search&&!t.title.toLowerCase().includes(search.toLowerCase())&&!t.desc.toLowerCase().includes(search.toLowerCase())) return false;
+    return true;
+  }),[tasks,fAs,fSt,fPr,fCat,search,view,activeMember]);
+
+  const stats=useMemo(()=>({
+    total:tasks.length,
+    comp:tasks.filter(t=>t.status==="Completado").length,
+    prog:tasks.filter(t=>t.status==="En Progreso").length,
+    pend:tasks.filter(t=>t.status==="Pendiente").length,
+    bloq:tasks.filter(t=>t.status==="Bloqueado").length,
+    venc:tasks.filter(t=>t.due<TODAY&&t.status!=="Completado").length,
+    alta:tasks.filter(t=>t.priority==="Alta"&&t.status!=="Completado").length,
+    avg:tasks.length?Math.round(tasks.reduce((a,t)=>a+t.progress,0)/tasks.length):0,
+    estanc:tasks.filter(t=>t.status!=="Completado"&&calcStall(t).stallDays>=7).length,
+  }),[tasks]);
+
+  const teamSum=useMemo(()=>team.map(m=>{
+    const mt=tasks.filter(t=>t.assignee===m);
+    return{name:m,total:mt.length,done:mt.filter(t=>t.status==="Completado").length,prog:mt.filter(t=>t.status==="En Progreso").length,bloq:mt.filter(t=>t.status==="Bloqueado").length,avg:mt.length?Math.round(mt.reduce((a,t)=>a+t.progress,0)/mt.length):0};
+  }),[tasks,team]);
+
+  const saveTask=(form)=>{
+    const fb=window.__fb;
+    if(form.id){
+      snapshot(`Editar: ${form.title}`, tasks);
+      fb.setDoc(fb.taskDoc(form.id), form);
+      showSync("✏️ Tarea guardada");
+    } else {
+      const newId=Date.now();
+      const newTask={...form,id:newId,created:TODAY,progressHistory:[{date:TODAY,pct:form.progress}]};
+      snapshot(`Nueva tarea: ${form.title}`, tasks);
+      fb.setDoc(fb.taskDoc(newId), newTask);
+      showSync("✅ Tarea creada");
+    }
+  };
+  const delTask=(id)=>{
+    const t=tasks.find(x=>x.id===id);
+    if(!window.confirm(`¿Eliminar "${t?.title}"?`)) return;
+    snapshot(`Eliminar: ${t?t.title:"tarea"}`, tasks);
+    window.__fb.deleteDoc(window.__fb.taskDoc(id));
+    showSync("🗑 Tarea eliminada");
+  };
+  const newTask=()=>setModal({id:null,title:"",desc:"",assignee:"Yo (Contador)",category:cats[0]||"General",priority:"Media",status:"Pendiente",progress:0,due:TODAY,created:TODAY,progressHistory:[]});
+
+  const exportData=()=>{
+    const data={tasks,team,categories:cats,exportedAt:new Date().toISOString()};
+    const blob=new Blob([JSON.stringify(data,null,2)],{type:"application/json"});
+    const url=URL.createObjectURL(blob);
+    const a=document.createElement("a");
+    a.href=url;a.download=`agenda-csc-${TODAY}.json`;a.click();
+    URL.revokeObjectURL(url);
+  };
+
+  const importData=(e)=>{
+    const file=e.target.files[0];if(!file)return;
+    const reader=new FileReader();
+    reader.onload=ev=>{
+      try{
+        const d=JSON.parse(ev.target.result);
+        const fb=window.__fb;
+        if(d.tasks){
+          // Delete all current tasks then upload imported
+          tasks.forEach(t=>fb.deleteDoc(fb.taskDoc(t.id)));
+          d.tasks.forEach(t=>fb.setDoc(fb.taskDoc(t.id),t));
+        }
+        if(d.team||d.categories){
+          saveConfig(d.team||team, d.categories||cats);
+        }
+        showSync("📂 Importación exitosa");
+      }catch{alert("❌ Archivo inválido.");}
+    };
+    reader.readAsText(file);
+    e.target.value="";
+  };
+
+  const sel={padding:"9px 14px",borderRadius:10,border:"1.5px solid #e5e7eb",fontSize:13,background:"#fff"};
+
+  // navs dinámicos: dashboard + equipo (todos) + una pestaña por miembro
+  const memberNavs=team.map(m=>({id:`member_${m}`,l:m==="Yo (Contador)"?"⭐ Yo":m.split(" ")[0]+" "+( m.split(" ")[1]||""),ic:"👤",member:m}));
+  const navs=[
+    {id:"dashboard",l:"Dashboard",ic:"📊"},
+    {id:"lista",l:"Todos",ic:"👥"},
+    ...memberNavs,
+  ];
+
+  // miembro activo si la vista es una pestaña de miembro
+  const activeMember=view.startsWith("member_")?view.replace("member_",""):null;
+
+  if(!fbReady||loading) return <div style={{display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",height:"100vh",background:"#f1f5f9",gap:16}}>
+    <div style={{fontSize:48}}>📋</div>
+    <div style={{fontWeight:800,fontSize:20,color:"#1d4ed8"}}>Agenda Estratégica CSC</div>
+    <div style={{fontSize:13,color:"#6b7280"}}>{!fbReady?"Conectando con Firebase...":"Cargando tareas..."}</div>
+    <div style={{width:200,height:4,background:"#e5e7eb",borderRadius:99,overflow:"hidden",marginTop:8}}>
+      <div style={{width:"60%",height:"100%",background:"#3b82f6",borderRadius:99,animation:"pulse 1.2s ease-in-out infinite"}}/>
+    </div>
+    <style>{`@keyframes pulse{0%,100%{opacity:.4;width:40%}50%{opacity:1;width:80%}}`}</style>
+  </div>;
+
+  return <div style={{fontFamily:"'Sora',sans-serif",minHeight:"100vh",background:"#f1f5f9"}}>
+    {/* TOAST UNDO */}
+    {undoMsg&&<div style={{position:"fixed",bottom:28,left:"50%",transform:"translateX(-50%)",background:"#1e293b",color:"#fff",padding:"11px 22px",borderRadius:12,fontSize:13,fontWeight:600,zIndex:2000,boxShadow:"0 8px 24px rgba(0,0,0,.3)",pointerEvents:"none",whiteSpace:"nowrap"}}>{undoMsg}</div>}
+    {/* TOAST SYNC */}
+    {syncMsg&&<div style={{position:"fixed",top:20,right:24,background:"#1d4ed8",color:"#fff",padding:"10px 18px",borderRadius:12,fontSize:13,fontWeight:600,zIndex:2000,boxShadow:"0 4px 16px rgba(29,78,216,.4)",pointerEvents:"none",display:"flex",alignItems:"center",gap:8}}>
+      <span style={{fontSize:16}}>🔄</span>{syncMsg}
+    </div>}
+
+    {/* HEADER — top bar */}
+    <div style={{background:"linear-gradient(135deg,#0f172a 0%,#1e3a5f 60%,#1d4ed8 100%)",boxShadow:"0 4px 20px rgba(0,0,0,.2)",position:"sticky",top:0,zIndex:100}}>
+      <div style={{padding:"0 24px",display:"flex",alignItems:"center",justifyContent:"space-between"}}>
+        <div style={{display:"flex",flexDirection:"column",padding:"14px 0 6px"}}>
+          <span style={{fontSize:18,fontWeight:800,color:"#fff",letterSpacing:-0.5}}>📋 Agenda Estratégica CSC</span>
+          <div style={{display:"flex",alignItems:"center",gap:8,marginTop:2}}>
+            <span style={{fontSize:11,color:"#93c5fd",fontWeight:500}}>{new Date().toLocaleDateString("es-AR",{weekday:"long",year:"numeric",month:"long",day:"numeric"})}</span>
+            <span style={{display:"flex",alignItems:"center",gap:4,fontSize:10,color:"#4ade80",fontWeight:700,background:"rgba(74,222,128,.15)",padding:"2px 8px",borderRadius:99,border:"1px solid rgba(74,222,128,.3)"}}>
+              <span style={{width:6,height:6,borderRadius:"50%",background:"#4ade80",display:"inline-block",animation:"blink 1.5s ease-in-out infinite"}}/>
+              EN VIVO
+            </span>
+          </div>
+          <style>{`@keyframes blink{0%,100%{opacity:1}50%{opacity:.3}}`}</style>
+        </div>
+        <div style={{display:"flex",gap:8,alignItems:"center"}}>
+          {/* UNDO / REDO */}
+          <div style={{display:"flex",gap:2,background:"rgba(255,255,255,.08)",borderRadius:10,padding:"4px",border:"1.5px solid rgba(255,255,255,.15)"}}>
+            <button onClick={undo} disabled={!history.length} title={history.length?`Deshacer: ${history[history.length-1].label}`:"Nada para deshacer"}
+              style={{padding:"6px 12px",borderRadius:7,border:"none",cursor:history.length?"pointer":"not-allowed",fontWeight:700,fontSize:13,background:"transparent",color:history.length?"#fff":"rgba(255,255,255,.3)",display:"flex",alignItems:"center",gap:5}}
+              onMouseEnter={e=>{if(history.length)e.currentTarget.style.background="rgba(255,255,255,.15)"}}
+              onMouseLeave={e=>{e.currentTarget.style.background="transparent"}}
+            >↩ <span style={{fontSize:11}}>{history.length>0?history.length:""}</span></button>
+            <div style={{width:1,background:"rgba(255,255,255,.2)",margin:"4px 0"}}/>
+            <button onClick={redo} disabled={!future.length} title={future.length?`Rehacer: ${future[0].label}`:"Nada para rehacer"}
+              style={{padding:"6px 12px",borderRadius:7,border:"none",cursor:future.length?"pointer":"not-allowed",fontWeight:700,fontSize:13,background:"transparent",color:future.length?"#fff":"rgba(255,255,255,.3)",display:"flex",alignItems:"center",gap:5}}
+              onMouseEnter={e=>{if(future.length)e.currentTarget.style.background="rgba(255,255,255,.15)"}}
+              onMouseLeave={e=>{e.currentTarget.style.background="transparent"}}
+            >↪</button>
+          </div>
+          <label style={{padding:"10px 16px",borderRadius:10,border:"1.5px solid rgba(255,255,255,.25)",background:"rgba(255,255,255,.08)",color:"#fff",fontWeight:600,fontSize:13,cursor:"pointer",display:"flex",alignItems:"center",gap:6}}>
+            📂 Importar<input type="file" accept=".json" style={{display:"none"}} onChange={importData}/>
+          </label>
+          <button onClick={exportData} style={{padding:"10px 16px",borderRadius:10,border:"1.5px solid rgba(255,255,255,.25)",background:"rgba(255,255,255,.08)",color:"#fff",fontWeight:600,fontSize:13,cursor:"pointer"}}>💾 Exportar</button>
+          <button onClick={()=>setShowCfg(true)} style={{padding:"10px 16px",borderRadius:10,border:"1.5px solid rgba(255,255,255,.25)",background:"rgba(255,255,255,.08)",color:"#fff",fontWeight:600,fontSize:13,cursor:"pointer"}}>⚙️ Configurar</button>
+          <button onClick={newTask} style={{padding:"10px 20px",borderRadius:10,border:"none",background:"#3b82f6",color:"#fff",fontWeight:700,fontSize:13,cursor:"pointer",boxShadow:"0 4px 12px rgba(59,130,246,.5)"}}>+ Nueva Tarea</button>
+        </div>
+      </div>
+
+      {/* NAV TABS — second row */}
+      <div style={{display:"flex",gap:2,padding:"0 20px",overflowX:"auto"}}>
+        {navs.map(n=>{
+          const isActive=view===n.id;
+          const memberData=n.member?teamSum.find(m=>m.name===n.member):null;
+          return <button key={n.id} onClick={()=>setView(n.id)} style={{
+            padding:"9px 16px 0",border:"none",cursor:"pointer",fontWeight:isActive?700:500,fontSize:13,
+            background:isActive?"rgba(255,255,255,.12)":"transparent",
+            color:isActive?"#fff":"rgba(255,255,255,.55)",
+            borderBottom:isActive?"3px solid #60a5fa":"3px solid transparent",
+            borderRadius:"8px 8px 0 0",whiteSpace:"nowrap",
+            display:"flex",flexDirection:"column",alignItems:"center",gap:2,paddingBottom:8,
+            transition:"all .15s",
+          }}>
+            <span>{n.ic} {n.l}</span>
+            {memberData&&memberData.total>0&&<span style={{fontSize:10,opacity:.8,fontWeight:600}}>
+              {memberData.total}t · {memberData.avg}%
+            </span>}
+          </button>;
+        })}
+      </div>
+    </div>
+
+    <div style={{padding:24,maxWidth:1300,margin:"0 auto"}}>
+
+      {/* DASHBOARD */}
+      {view==="dashboard"&&<>
+        <div style={{display:"flex",gap:14,flexWrap:"wrap",marginBottom:24}}>
+          <StatCard title="Total Tareas" value={stats.total} icon="📋" color="#6366f1" sub="activas e históricas"/>
+          <StatCard title="En Progreso" value={stats.prog} icon="🔄" color="#3b82f6"/>
+          <StatCard title="Completadas" value={stats.comp} icon="✅" color="#22c55e"/>
+          <StatCard title="Pendientes" value={stats.pend} icon="⏳" color="#f59e0b"/>
+          <StatCard title="Bloqueadas" value={stats.bloq} icon="🚫" color="#ef4444"/>
+          <StatCard title="Avance General" value={`${stats.avg}%`} icon="📈" color="#8b5cf6" sub="promedio equipo"/>
+          <StatCard title="Alta Prioridad" value={stats.alta} icon="🔴" color="#dc2626" sub="sin completar"/>
+          {stats.estanc>0&&<StatCard title="Estancadas +7d" value={stats.estanc} icon="🛑" color="#b45309" sub="sin movimiento"/>}
+        </div>
+
+        <div style={{background:"#fff",borderRadius:16,padding:24,marginBottom:20,boxShadow:"0 1px 3px rgba(0,0,0,.08)"}}>
+          <h3 style={{margin:"0 0 16px",fontSize:15,fontWeight:700,color:"#111827"}}>📊 Avance General del Equipo</h3>
+          {teamSum.map(m=><div key={m.name} style={{marginBottom:14}}>
+            <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:5}}>
+              <div style={{display:"flex",alignItems:"center",gap:10}}>
+                <div style={{width:34,height:34,borderRadius:"50%",background:m.name==="Yo (Contador)"?"#1d4ed8":"#e5e7eb",display:"flex",alignItems:"center",justifyContent:"center",fontSize:14,fontWeight:800,color:m.name==="Yo (Contador)"?"#fff":"#374151"}}>{m.name.split(" ").map(w=>w[0]).join("").slice(0,2)}</div>
+                <div>
+                  <div style={{fontWeight:700,fontSize:13,color:"#111827"}}>{m.name}</div>
+                  <div style={{fontSize:11,color:"#9ca3af"}}>{m.total} tareas · ✅{m.done} · 🔄{m.prog}{m.bloq>0?` · 🚫${m.bloq}`:""}</div>
+                </div>
+              </div>
+              <div style={{fontSize:16,fontWeight:800,color:m.avg>70?"#22c55e":m.avg>40?"#f59e0b":"#ef4444"}}>{m.avg}%</div>
+            </div>
+            <PBar value={m.avg} color={m.avg>70?"#22c55e":m.avg>40?"#f59e0b":"#ef4444"}/>
+          </div>)}
+        </div>
+
+        <div style={{background:"#fff",borderRadius:16,padding:24,boxShadow:"0 1px 3px rgba(0,0,0,.08)"}}>
+          <h3 style={{margin:"0 0 16px",fontSize:15,fontWeight:700,color:"#111827"}}>🔴 Tareas Urgentes / Alta Prioridad</h3>
+          {tasks.filter(t=>t.priority==="Alta"&&t.status!=="Completado").sort((a,b)=>a.due.localeCompare(b.due)).map(t=>{
+            const{stallDays}=calcStall(t);
+            return <div key={t.id} onClick={()=>setModal(t)} style={{display:"flex",alignItems:"center",gap:14,padding:"12px 16px",borderRadius:12,background:t.due<TODAY?"#fef2f2":"#fff",border:`1px solid ${t.due<TODAY?"#fecaca":"#e5e7eb"}`,cursor:"pointer",marginBottom:10}}>
+              <span style={{fontSize:20}}>{SC[t.status].icon}</span>
+              <div style={{flex:1}}>
+                <div style={{fontWeight:700,fontSize:13,color:"#111827"}}>{t.title}</div>
+                <div style={{fontSize:11,color:"#9ca3af"}}>{t.assignee} · {t.category} · vence {t.due}</div>
+                <div style={{marginTop:4}}><PBar value={t.progress} color="#3b82f6"/></div>
+              </div>
+              <div style={{textAlign:"right"}}>
+                <div style={{fontWeight:800,fontSize:14,color:t.due<TODAY?"#ef4444":"#374151"}}>{t.due<TODAY?"⚠️ VENCIDA":t.due===TODAY?"📅 HOY":t.due}</div>
+                <div style={{fontSize:11,color:stallDays>=7?"#ef4444":"#6b7280",marginTop:2}}>{t.progress}% · {stallDays>=7?`🛑 ${stallDays}d sin mover`:`${stallDays}d estac.`}</div>
+              </div>
+            </div>;
+          })}
+        </div>
+      </>}
+
+      {/* PESTAÑA MIEMBRO — vista de tarjetas por estado */}
+      {activeMember&&(()=>{
+        const mTasks=tasks.filter(t=>t.assignee===activeMember);
+        const m=teamSum.find(x=>x.name===activeMember)||{total:0,done:0,prog:0,bloq:0,pend:0,avg:0};
+        const groups=[
+          {key:"En Progreso", icon:"🔄", color:"#3b82f6", bg:"#eff6ff", border:"#bfdbfe"},
+          {key:"Pendiente",   icon:"⏳", color:"#f59e0b", bg:"#fffbeb", border:"#fde68a"},
+          {key:"Bloqueado",   icon:"🚫", color:"#ef4444", bg:"#fef2f2", border:"#fecaca"},
+          {key:"Completado",  icon:"✅", color:"#22c55e", bg:"#f0fdf4", border:"#bbf7d0"},
+        ];
+        return <>
+          {/* Banner del miembro */}
+          <div style={{background:"linear-gradient(135deg,#1e3a5f,#1d4ed8)",borderRadius:16,padding:"20px 24px",marginBottom:20,display:"flex",alignItems:"center",gap:20,boxShadow:"0 4px 16px rgba(29,78,216,.3)"}}>
+            <div style={{width:56,height:56,borderRadius:"50%",background:"rgba(255,255,255,.2)",display:"flex",alignItems:"center",justifyContent:"center",fontSize:20,fontWeight:800,color:"#fff",flexShrink:0,border:"3px solid rgba(255,255,255,.4)"}}>
+              {activeMember.split(" ").map(w=>w[0]).join("").slice(0,2)}
+            </div>
+            <div style={{flex:1}}>
+              <div style={{fontWeight:800,fontSize:18,color:"#fff"}}>{activeMember==="Yo (Contador)"?"⭐ Yo (Contador)":activeMember}</div>
+              <div style={{fontSize:12,color:"#93c5fd",marginTop:3}}>{mTasks.length} tareas asignadas · {m.avg}% avance promedio</div>
+              <div style={{marginTop:8,background:"rgba(255,255,255,.15)",borderRadius:99,height:8,overflow:"hidden",maxWidth:300}}>
+                <div style={{width:`${m.avg}%`,background:m.avg===100?"#4ade80":"#60a5fa",height:"100%",borderRadius:99,transition:"width .5s"}}/>
+              </div>
+            </div>
+            <div style={{display:"flex",gap:12,flexWrap:"wrap"}}>
+              {[["🔄",m.prog,"En Progreso","#dbeafe","#1d4ed8"],["⏳",mTasks.filter(t=>t.status==="Pendiente").length,"Pendientes","#fef3c7","#d97706"],["🚫",m.bloq,"Bloqueadas","#fee2e2","#dc2626"],["✅",m.done,"Completadas","#dcfce7","#16a34a"]].map(([ic,val,lbl,bg,col])=>(
+                <div key={lbl} style={{background:bg,borderRadius:10,padding:"8px 14px",textAlign:"center",minWidth:70}}>
+                  <div style={{fontSize:18,fontWeight:800,color:col}}>{val}</div>
+                  <div style={{fontSize:10,color:col,fontWeight:600}}>{ic} {lbl}</div>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          {/* Tarjetas agrupadas por estado */}
+          {mTasks.length===0&&<div style={{background:"#fff",borderRadius:16,padding:48,textAlign:"center",color:"#9ca3af",fontSize:14,boxShadow:"0 1px 3px rgba(0,0,0,.08)"}}>
+            Sin tareas asignadas. Usá <strong>+ Nueva Tarea</strong> para agregar una.
+          </div>}
+
+          {groups.map(g=>{
+            const gTasks=mTasks.filter(t=>t.status===g.key).sort((a,b)=>a.due.localeCompare(b.due));
+            if(!gTasks.length) return null;
+            return <div key={g.key} style={{marginBottom:20}}>
+              <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:10}}>
+                <span style={{fontSize:16}}>{g.icon}</span>
+                <span style={{fontWeight:700,fontSize:15,color:g.color}}>{g.key}</span>
+                <span style={{background:g.bg,color:g.color,border:`1px solid ${g.border}`,borderRadius:99,fontSize:11,fontWeight:700,padding:"1px 9px"}}>{gTasks.length}</span>
+              </div>
+              <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(280px,1fr))",gap:12}}>
+                {gTasks.map(t=>{
+                  const{stallDays}=calcStall(t);
+                  const subs=(t.subtasks||[]).filter(s=>s.text.trim());
+                  const chkSubs=subs.filter(s=>s.done).length;
+                  const isOverdue=t.due<TODAY&&t.status!=="Completado";
+                  const isToday=t.due===TODAY;
+                  return <div key={t.id} onClick={()=>setModal(t)} style={{background:"#fff",borderRadius:14,padding:"16px 18px",boxShadow:"0 1px 4px rgba(0,0,0,.08)",border:`1.5px solid ${isOverdue?"#fecaca":g.border}`,cursor:"pointer",transition:"box-shadow .15s",}}
+                    onMouseEnter={e=>e.currentTarget.style.boxShadow="0 4px 16px rgba(0,0,0,.12)"}
+                    onMouseLeave={e=>e.currentTarget.style.boxShadow="0 1px 4px rgba(0,0,0,.08)"}
+                  >
+                    {/* prioridad + vencimiento */}
+                    <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:8}}>
+                      <Badge text={t.priority} cfg={PC[t.priority]}/>
+                      <span style={{fontSize:11,fontWeight:700,color:isOverdue?"#ef4444":isToday?"#f59e0b":"#6b7280",background:isOverdue?"#fef2f2":isToday?"#fffbeb":"#f8fafc",padding:"2px 8px",borderRadius:99,border:`1px solid ${isOverdue?"#fecaca":isToday?"#fde68a":"#e5e7eb"}`}}>
+                        {isOverdue?"⚠️ VENCIDA":isToday?"📅 HOY":t.due}
+                      </span>
+                    </div>
+                    {/* título y descripción */}
+                    <div style={{fontWeight:700,fontSize:14,color:"#111827",marginBottom:4,lineHeight:1.3}}>{t.title}</div>
+                    <div style={{fontSize:12,color:"#9ca3af",marginBottom:10}}>{t.category} · {t.desc.slice(0,55)}{t.desc.length>55?"…":""}</div>
+                    {/* barra de avance */}
+                    <div style={{marginBottom:6}}>
+                      <div style={{display:"flex",justifyContent:"space-between",marginBottom:3}}>
+                        <span style={{fontSize:11,fontWeight:700,color:"#374151"}}>{t.progress}%</span>
+                        <span style={{fontSize:10,color:stallDays>=7?"#ef4444":stallDays>=3?"#f59e0b":"#22c55e",fontWeight:600}}>
+                          {stallDays>=7?"🔴":stallDays>=3?"🟡":"🟢"} {stallDays}d sin cambio
+                        </span>
+                      </div>
+                      <PBar value={t.progress} color={t.status==="Completado"?"#22c55e":PC[t.priority].color}/>
+                    </div>
+                    {/* subtareas */}
+                    {subs.length>0&&<div style={{marginTop:10,borderTop:"1px solid #f1f5f9",paddingTop:8}}>
+                      <div style={{fontSize:11,fontWeight:600,color:"#6b7280",marginBottom:6}}>Subtareas {chkSubs}/{subs.length}</div>
+                      {subs.map((s,i)=>(
+                        <div key={i} style={{display:"flex",alignItems:"center",gap:6,marginBottom:4}}>
+                          <div style={{width:14,height:14,borderRadius:3,flexShrink:0,background:s.done?"#22c55e":"transparent",border:`2px solid ${s.done?"#22c55e":"#d1d5db"}`,display:"flex",alignItems:"center",justifyContent:"center"}}>
+                            {s.done&&<span style={{color:"#fff",fontSize:9,fontWeight:900}}>✓</span>}
+                          </div>
+                          <span style={{fontSize:11,color:s.done?"#9ca3af":"#374151",textDecoration:s.done?"line-through":"none"}}>{s.text}</span>
+                        </div>
+                      ))}
+                    </div>}
+                    {/* asignada */}
+                    <div style={{marginTop:8,fontSize:10,color:"#9ca3af"}}>📅 Asignada {t.created} · {daysBetween(t.created,TODAY)}d atrás</div>
+                  </div>;
+                })}
+              </div>
+            </div>;
+          })}
+        </>;
+      })()}
+
+      {/* LISTA / TODOS */}
+      {(view==="lista"||view==="mias")&&<>
+        <div style={{background:"#fff",borderRadius:16,padding:"16px 20px",marginBottom:20,boxShadow:"0 1px 3px rgba(0,0,0,.08)",display:"flex",flexWrap:"wrap",gap:10,alignItems:"center"}}>
+          <input placeholder="🔍 Buscar tarea..." value={search} onChange={e=>setSearch(e.target.value)} style={{...sel,minWidth:200,outline:"none"}}/>
+          {view==="lista"&&<select value={fAs} onChange={e=>setFAs(e.target.value)} style={sel}><option>Todos</option>{team.map(t=><option key={t}>{t}</option>)}</select>}
+          {[["Estado",fSt,setFSt,["Todos",...STATUSES]],["Prioridad",fPr,setFPr,["Todos",...PRIORITIES]],["Categoría",fCat,setFCat,["Todos",...cats]]].map(([label,val,fn,opts])=>(
+            <select key={label} value={val} onChange={e=>fn(e.target.value)} style={sel}>{opts.map(o=><option key={o}>{o==="Todos"?`${label}: Todos`:o}</option>)}</select>
+          ))}
+          <span style={{marginLeft:"auto",fontSize:12,color:"#9ca3af",fontWeight:600}}>{filtered.length} tarea{filtered.length!==1?"s":""}</span>
+        </div>
+
+        <div style={{background:"#fff",borderRadius:16,boxShadow:"0 1px 3px rgba(0,0,0,.08)",overflow:"hidden"}}>
+          {(()=>{
+            const cols=[{key:"title",label:"Tarea"},{key:"assignee",label:"Responsable"},{key:"priority",label:"Prioridad"},{key:"status",label:"Estado"},{key:"created",label:"Asignada"},{key:"due",label:"Vence"}];
+            return <div style={{display:"grid",gridTemplateColumns:"2fr 1fr 1fr 1fr 90px 90px 100px 110px 70px",padding:"12px 20px",background:"#f8fafc",borderBottom:"1px solid #e5e7eb"}}>
+              {cols.map(c=><button key={c.key} onClick={()=>handleSort(c.key)} style={{display:"flex",alignItems:"center",gap:4,background:"none",border:"none",cursor:"pointer",padding:0,fontSize:11,fontWeight:700,color:sortCol===c.key?"#1d4ed8":"#6b7280",letterSpacing:0.5,textTransform:"uppercase",userSelect:"none"}}>
+                {c.label}<span style={{fontSize:10,opacity:sortCol===c.key?1:0.35}}>{sortCol===c.key?(sortDir==="asc"?"▲":"▼"):"⇅"}</span>
+              </button>)}
+              <span style={{fontSize:11,fontWeight:700,color:"#6b7280",letterSpacing:0.5,textTransform:"uppercase"}}>Avance</span>
+              <span style={{fontSize:11,fontWeight:700,color:"#6b7280",letterSpacing:0.5,textTransform:"uppercase"}}>Estacionado</span>
+              <span style={{fontSize:11,fontWeight:700,color:"#6b7280",letterSpacing:0.5,textTransform:"uppercase"}}>Acc.</span>
+            </div>;
+          })()}
+          {filtered.length===0&&<div style={{padding:40,textAlign:"center",color:"#9ca3af",fontSize:14}}>Sin resultados.</div>}
+          {[...filtered].sort((a,b)=>{
+            const po={Alta:0,Media:1,Baja:2},so={Pendiente:0,"En Progreso":1,Bloqueado:2,Completado:3};
+            let cmp=0;
+            if(sortCol==="priority") cmp=po[a.priority]-po[b.priority];
+            else if(sortCol==="status") cmp=(so[a.status]??9)-(so[b.status]??9);
+            else if(sortCol==="due") cmp=a.due.localeCompare(b.due);
+            else cmp=(a[sortCol]||"").localeCompare(b[sortCol]||"");
+            return sortDir==="asc"?cmp:-cmp;
+          }).map((t,i)=>(
+            <div key={t.id} style={{display:"grid",gridTemplateColumns:"2fr 1fr 1fr 1fr 90px 90px 100px 110px 70px",padding:"13px 20px",borderBottom:"1px solid #f1f5f9",alignItems:"center",background:i%2===0?"#fff":"#fafbfc",cursor:"pointer"}} onClick={()=>setModal(t)}>
+              <div>
+                <div style={{fontWeight:700,fontSize:13,color:"#111827"}}>{t.title}</div>
+                <div style={{fontSize:11,color:"#9ca3af"}}>{t.category} · {t.desc.slice(0,38)}{t.desc.length>38?"…":""}</div>
+                {(t.subtasks||[]).filter(s=>s.text.trim()).length>0&&(()=>{
+                  const def=(t.subtasks||[]).filter(s=>s.text.trim());
+                  const chk=def.filter(s=>s.done).length;
+                  return <span style={{fontSize:10,fontWeight:700,padding:"1px 7px",borderRadius:99,marginTop:3,display:"inline-block",background:chk===def.length?"#dcfce7":chk>0?"#fef3c7":"#f1f5f9",color:chk===def.length?"#16a34a":chk>0?"#d97706":"#6b7280"}}>
+                    ✅ {chk}/{def.length} subtareas
+                  </span>;
+                })()}
+              </div>
+              <div style={{fontSize:12,fontWeight:600,color:t.assignee==="Yo (Contador)"?"#1d4ed8":"#374151"}}>{t.assignee==="Yo (Contador)"?"⭐ Yo":t.assignee}</div>
+              <div><Badge text={t.priority} cfg={PC[t.priority]}/></div>
+              <div><Badge text={t.status} cfg={SC[t.status]}/></div>
+              <div style={{fontSize:11,color:"#6b7280"}}>
+                <div style={{fontWeight:600}}>{t.created}</div>
+                <div style={{color:"#9ca3af",marginTop:1}}>{daysBetween(t.created,TODAY)}d atrás</div>
+              </div>
+              <div style={{fontSize:12,fontWeight:700,color:t.due<TODAY&&t.status!=="Completado"?"#ef4444":t.due===TODAY?"#f59e0b":"#374151"}}>{t.due<TODAY&&t.status!=="Completado"?"⚠️ ":""}{t.due}</div>
+              <div onClick={e=>e.stopPropagation()}>
+                <SubtaskPopover task={t} color={PC[t.priority].color}/>
+              </div>
+              <div onClick={e=>e.stopPropagation()} style={{cursor:"default"}}><StallBadge task={t}/></div>
+              <div style={{display:"flex",gap:6}} onClick={e=>e.stopPropagation()}>
+                <button onClick={()=>setModal(t)} style={{padding:"5px 8px",borderRadius:7,border:"1px solid #e5e7eb",background:"#fff",cursor:"pointer",fontSize:13}}>✏️</button>
+                <button onClick={()=>delTask(t.id)} style={{padding:"5px 8px",borderRadius:7,border:"1px solid #fee2e2",background:"#fff",cursor:"pointer",fontSize:13}}>🗑</button>
+              </div>
+            </div>
+          ))}
+        </div>
+      </>}
+    </div>
+
+    {modal&&<TaskModal task={modal} team={team} cats={cats} onClose={()=>setModal(null)} onSave={saveTask}/>}
+    {showCfg&&<SettingsModal team={team} cats={cats} onClose={()=>setShowCfg(false)} onSaveConfig={saveConfig}/>}
+  </div>;
+}
+
+ReactDOM.createRoot(document.getElementById("root")).render(<App/>);
+</script>
+</body>
+</html>
